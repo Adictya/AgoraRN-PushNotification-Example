@@ -38,10 +38,14 @@ export default class AgoraView extends Component {
     this._engine = await RtcEngine.create(this.appId);
     await this._engine.enableAudio();
 
-    this._engine.addListener('JoinChannelSuccess', (channel, uid, elapsed) => {
-      console.log('JoinChannelSuccess', channel, uid, elapsed);
+    this._engine.addListener('UserJoined', () => {
+      if (this.state.calling) RNCallKeep.setCurrentCallActive(this.callUUID);
+      console.log('User joined call');
+    });
 
-      RNCallKeep.setCurrentCallActive(this.callUUID);
+    this._engine.addListener('JoinChannelSuccess', (channel, uid, elapsed) => {
+      // RNCallKeep.setCurrentCallActive(this.callUUID);
+      console.log('JoinChannelSuccess', channel, uid, elapsed);
 
       this.setState({
         ...this.state,
@@ -57,6 +61,7 @@ export default class AgoraView extends Component {
     this.init();
 
     // CallKit Setup
+    this.callUUID = this.state.channel;
     const options = {
       ios: {
         appName: 'My app name',
@@ -74,7 +79,7 @@ export default class AgoraView extends Component {
           notificationTitle: 'My app is running on background',
           notificationIcon: 'Path to the resource icon of the notification',
         },
-        selfManaged: true,
+        selfManaged: false,
       },
     };
 
@@ -91,26 +96,39 @@ export default class AgoraView extends Component {
   // HANDLERS
 
   notificationHandler = async remoteMessage => {
-    // const {callerCode} = remoteMessage.data || '66666';
-    // RNCallKeep.backToForeground();
-    RNCallKeep.displayIncomingCall(this.callUUID, '66666');
-    console.log('I got a remote message : ' + JSON.stringify(remoteMessage));
+    const {callerCode} = JSON.parse(remoteMessage.data.body) || '66666';
+    console.log('I got a remote message : ' + JSON.stringify(callerCode));
+    if (callerCode) {
+      RNCallKeep.backToForeground();
+      RNCallKeep.displayIncomingCall(this.callUUID, callerCode);
+    }
   };
 
   rnCallKeepHandlers = () => {
-    RNCallKeep.addEventListener('answerCall', () => {
+    RNCallKeep.addEventListener('answerCall', async ({callUUID}) => {
+      RNCallKeep.setCurrentCallActive(callUUID);
+      console.log('id' + JSON.stringify(callUUID));
       this._engine.joinChannel(null, 'callTest', null, 0);
     });
+
+    RNCallKeep.addEventListener(
+      'didPerformSetMutedCallAction',
+      ({muted, callUUID}) => {
+        this._engine.joinChannel(null, 'callTest', null, 0);
+      },
+    );
 
     RNCallKeep.addEventListener('didReceiveStartCallAction', () => {
       this._engine.joinChannel(null, 'callTest', null, 0);
     });
-    RNCallKeep.addEventListener(
-      'showIncomingCallUi',
-      ({handle, callUUID, name}) => {
-        RNCallKeep.answerIncomingCall(callUUID);
-      },
-    );
+    // RNCallKeep.addEventListener(
+    //   'showIncomingCallUi',
+    //   ({handle, callUUID, name}) => {
+    //     RNCallKeep.backToForeground();
+    //     this.setState({...this.state, calling: true});
+    //     // RNCallKeep.answerIncomingCall(callUUID);
+    //   },
+    // );
   };
 
   remoteCodeHandler = value => {
@@ -130,6 +148,11 @@ export default class AgoraView extends Component {
         database().ref(`FCMTokens/${this.state.localCode}`).set(fcmToken);
     }
     console.log('UserId: ' + localCode);
+  };
+
+  answerCallHandler = () => {
+    this.setState({...this.state, calling: false});
+    RNCallKeep.answerIncomingCall(this.callUUID);
   };
 
   callHandler = async () => {
@@ -153,7 +176,8 @@ export default class AgoraView extends Component {
           }),
         },
       );
-      RNCallKeep.startCall(this.callUUID, '66666');
+      RNCallKeep.startCall(this.callUUID, this.state.remoteCode);
+      this.setState({...this.state, calling: true});
     } catch (e) {
       console.log(e);
     }
@@ -299,3 +323,13 @@ export default class AgoraView extends Component {
 // onPress={() =>
 //   RNCallKeep.displayIncomingCall(this.callUUID, '66666')
 // }
+//
+//
+// {this.state.calling ? (
+//   <Button title="Answer Call" onPress={this.answerCallHandler} />
+// ) : null}
+// <Button
+//   onPress={() => RNCallKeep.endCall(this.callUUID)}
+//   color="red"
+//   title="EndCall"
+// />
